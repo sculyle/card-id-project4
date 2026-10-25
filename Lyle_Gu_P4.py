@@ -7,7 +7,7 @@ import cv2
 os.chdir(os.path.dirname(os.path.abspath(__file__)))   # work from the script's folder
 
 # %% Settings
-ZOOM_PCT = 70        # digital zoom, 20 = 1.2x center crop, 0 = off
+ZOOM_PCT = 70        # 1.7 zoom 
 saveDir = 'captures'
 
 def zoom(img):
@@ -29,6 +29,7 @@ if choice == '1':
         raise SystemExit('Could not open camera')
     cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)      # fixed focus
     while True:
+        # asked ai to help me create settings for capture from webcam
         ok, f = cap.read()
         if not ok:
             raise SystemExit('Camera gave no frame')
@@ -38,7 +39,7 @@ if choice == '1':
         cv2.imshow('Preview', f)
         key = cv2.waitKey(1) & 0xFF
         if key == ord(' '):
-            for _ in range(10):      # let auto exposure settle
+            for _ in range(10):
                 ok, f = cap.read()
             f = zoom(f)
             break
