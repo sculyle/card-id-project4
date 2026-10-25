@@ -4,6 +4,8 @@ import glob
 import time
 import cv2
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))   # work from the script's folder
+
 # %% Settings
 ZOOM_PCT = 70        # digital zoom, 20 = 1.2x center crop, 0 = off
 saveDir = 'captures'
