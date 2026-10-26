@@ -3,6 +3,8 @@ import os
 import glob
 import time
 import cv2
+# import numpy as np
+# import matplotlib.pyplot as plt
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))   # work from the script's folder
 
@@ -64,9 +66,43 @@ elif choice == '2':
 else:
     raise SystemExit('Invalid option')
 
-# %% Output
-cv2.imshow('Input Image', f)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+# # %% Even lighting
+# low-pass the image to estimate the lighting, then subtract it (same as P3)
+# g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(float)
+# F = np.fft.fftshift(np.fft.fft2(g))
+
+# Frequency coordinates (cycles/image) and distance from the center
+# M, N = F.shape
+# u, v = np.meshgrid(np.arange(1, N + 1), np.arange(1, M + 1))
+# U = u - (N // 2 + 1)
+# V = v - (M // 2 + 1)
+# D = np.sqrt(U**2 + V**2)
+
+# Butterworth low-pass
+# n = 2    # order
+# D0 = 10  # cutoff
+# HL = 1 / (1 + (D / D0)**(2 * n))
+# light = np.real(np.fft.ifft2(np.fft.ifftshift(F * HL)))   # estimate of the lighting
+# h3 = g - light
+
+# # %% Output (comment this whole block out for the final project)
+# cx = U[0, :]
+# cy = V[:, 0]
+
+# Filter
+# plt.figure()
+# plt.imshow(HL, extent=[cx[0], cx[-1], cy[-1], cy[0]], cmap='gray', vmin=0, vmax=1)
+# plt.colorbar()
+# plt.xlim(-50, 50); plt.ylim(50, -50)
+# plt.xlabel('Horizontal frequency (cycles/image)')
+# plt.ylabel('Vertical frequency (cycles/image)')
+# plt.title('Filter Used to Estimate the Lighting')
+
+# Original vs uniform illuminated
+# plt.figure()
+# plt.subplot(1, 3, 1); plt.imshow(g, cmap='gray');     plt.title('Original');  plt.axis('off')
+# plt.subplot(1, 3, 2); plt.imshow(light, cmap='gray'); plt.title('Lighting');  plt.axis('off')
+# plt.subplot(1, 3, 3); plt.imshow(h3, cmap='gray');    plt.title('Uniformly Illuminated Image'); plt.axis('off')
+# plt.show()
 
 # %% Image processing goes here
