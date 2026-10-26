@@ -105,4 +105,10 @@ else:
 # plt.subplot(1, 3, 3); plt.imshow(h3, cmap='gray');    plt.title('Uniformly Illuminated Image'); plt.axis('off')
 # plt.show()
 
+# %% Output
+g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+cv2.imshow('Input Image', g)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
 # %% Image processing goes here
