@@ -161,28 +161,59 @@ for i, (t, im) in enumerate([('Original', gl), ('Threshold, no filter', b1),
 plt.show()
 
 # ---------------
-# %% Connected component analysis (X_k = (X_k-1 dilated by B) intersect A, until X_k = X_k-1)
-B = np.ones((3, 3), np.uint8)              # 8-connected (default in notes)
-A = (~b2).astype(np.uint8)                 # invert, the dark symbols on the card are the objects
+# %% Straighten the card (TODO, not done yet, goes right above the CCA)
+# the card can be tilted on the desk, and a tilted card rotates every symbol (the A and the club on the ace picture)
+# a rotated symbol will not match an upright template, so rotate the whole card upright once before the CCA
+# idea: rotate the card mask over a range of angles (rotation matrix + interpolation from geometric transforms notes),
+# the bounding box is smallest when the card is upright, so keep that angle and rotate the picture by it
+# then the pips on the lower half are known to be upside down, and the corner symbols are known to be upright
+
+# ---------------
+# %% Connected component analysis (CCA notes)
+# card is white on black, so invert: the dark symbols on the card (ranks, suits, pips) are the objects
+# grow X_0 with X_k = (X_k-1 dilated by B) intersect A until X_k = X_k-1, that is one whole object
+# then XOR it out of A and repeat to find the next object
+B = np.ones((3, 3), np.uint8)              # B for 8-connected (default in notes), cross = 4-connected
+MIN_PIXELS = 10                            # not from notes, my cutoff: smaller objects are leftover noise (specks were 2-4 px, symbols 160+ px)
+A = (~b2).astype(np.uint8)
 objects = []
 while A.any():
     X = np.zeros_like(A)
-    y, x = np.argwhere(A)[0]               # X_0: one point in an object
-    X[y, x] = 1
+    X[tuple(np.argwhere(A)[0])] = 1        # X_0: one point in an object
     while True:
-        Xn = cv2.dilate(X, B) & A          # grow, but A limits it to the object
+        Xn = cv2.dilate(X, B) & A          # dilate, then intersect with A so it cant grow past the object
         if (Xn == X).all():                # same twice in a row, whole object found
             break
         X = Xn
-    if not (X[0].any() or X[-1].any() or X[:, 0].any() or X[:, -1].any()):
-        objects.append(X)                  # skip the black background, it touches the image border
-    A = A ^ X                              # remove the found object (XOR), then look for the next
+    # keep it only if it is big enough, and it doesnt touch the image border (that is the black background, not a symbol)
+    if X.sum() >= MIN_PIXELS and not (X[[0, -1]].any() or X[:, [0, -1]].any()):
+        objects.append(X)
+    A = A ^ X                              # remove the found object (XOR), A is empty when all are found
 print('%d objects found' % len(objects))
 
 # ---------------
 # %% Objects output (comment this whole block out for the final project)
+# one figure per object found
 for k, X in enumerate(objects, 1):
     plt.figure(); plt.imshow(X, cmap='gray'); plt.title('Object %d  (%d pixels)' % (k, X.sum())); plt.axis('off')
+plt.show()
+
+# ---------------
+# %% Fixed size symbols (experiment for matching, comment this whole section out if it doesnt work)
+# bounding box = smallest and largest row/col of the object's points (not from notes)
+# move the box corner to the origin (translation notes), then resize every object to the same size (bicubic, geometric transforms notes)
+SIZE = 64
+symbols = []
+for X in objects:
+    r, c = np.argwhere(X).T
+    box = X[r.min():r.max() + 1, c.min():c.max() + 1]
+    symbols.append(cv2.resize(box * 255, (SIZE, SIZE), interpolation=cv2.INTER_CUBIC))
+
+# ---------------
+# %% Fixed size symbols output (comment this whole block out for the final project)
+plt.figure(figsize=(12, 6))
+for k, sym in enumerate(symbols, 1):
+    plt.subplot(2, (len(symbols) + 1) // 2, k); plt.imshow(sym, cmap='gray'); plt.title('Object %d' % k); plt.axis('off')
 plt.show()
 
 # ---------------
