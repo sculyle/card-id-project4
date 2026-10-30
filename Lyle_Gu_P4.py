@@ -161,4 +161,29 @@ for i, (t, im) in enumerate([('Original', gl), ('Threshold, no filter', b1),
 plt.show()
 
 # ---------------
+# %% Connected component analysis (X_k = (X_k-1 dilated by B) intersect A, until X_k = X_k-1)
+B = np.ones((3, 3), np.uint8)              # 8-connected (default in notes)
+A = (~b2).astype(np.uint8)                 # invert, the dark symbols on the card are the objects
+objects = []
+while A.any():
+    X = np.zeros_like(A)
+    y, x = np.argwhere(A)[0]               # X_0: one point in an object
+    X[y, x] = 1
+    while True:
+        Xn = cv2.dilate(X, B) & A          # grow, but A limits it to the object
+        if (Xn == X).all():                # same twice in a row, whole object found
+            break
+        X = Xn
+    if not (X[0].any() or X[-1].any() or X[:, 0].any() or X[:, -1].any()):
+        objects.append(X)                  # skip the black background, it touches the image border
+    A = A ^ X                              # remove the found object (XOR), then look for the next
+print('%d objects found' % len(objects))
+
+# ---------------
+# %% Objects output (comment this whole block out for the final project)
+for k, X in enumerate(objects, 1):
+    plt.figure(); plt.imshow(X, cmap='gray'); plt.title('Object %d  (%d pixels)' % (k, X.sum())); plt.axis('off')
+plt.show()
+
+# ---------------
 # %% Image processing goes here
