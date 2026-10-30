@@ -168,6 +168,8 @@ plt.show()
 # the bounding box is smallest when the card is upright, so keep that angle and rotate the picture by it
 # then the pips on the lower half are known to be upside down, and the corner symbols are known to be upright
 
+# put your code to straighten the card here
+
 # ---------------
 # %% Connected component analysis (CCA notes)
 # card is white on black, so invert: the dark symbols on the card (ranks, suits, pips) are the objects
