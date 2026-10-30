@@ -161,14 +161,12 @@ for i, (t, im) in enumerate([('Original', gl), ('Threshold, no filter', b1),
 plt.show()
 
 # ---------------
-# %% Straighten the card (TODO, not done yet, goes right above the CCA)
+# %% Straighten the card (TODO)
 # the card can be tilted on the desk, and a tilted card rotates every symbol (the A and the club on the ace picture)
 # a rotated symbol will not match an upright template, so rotate the whole card upright once before the CCA
 # idea: rotate the card mask over a range of angles (rotation matrix + interpolation from geometric transforms notes),
 # the bounding box is smallest when the card is upright, so keep that angle and rotate the picture by it
 # then the pips on the lower half are known to be upside down, and the corner symbols are known to be upright
-
-# put your code to straighten the card here
 
 # ---------------
 # %% Connected component analysis (CCA notes)
@@ -216,6 +214,71 @@ for X in objects:
 plt.figure(figsize=(12, 6))
 for k, sym in enumerate(symbols, 1):
     plt.subplot(2, (len(symbols) + 1) // 2, k); plt.imshow(sym, cmap='gray'); plt.title('Object %d' % k); plt.axis('off')
+plt.show()
+
+# ---------------
+# %% Club fit (experiment, comment this whole section out if it doesnt work)
+# --- DRAWING PART: eventually we will want to comment this out (skeleton drawing by hand), the skeleton will be fixed later ---
+# draw an upright club skeleton with the mouse: hold left button to draw, c = clear, s = done
+# the symbols are stretched to fill the 64 x 64 box, so reach the leaves toward the red box and the stem toward the bottom
+BIG = 512                                  # drawing size, shrunk to 64 x 64 after
+canvas = np.zeros((BIG, BIG), np.uint8)
+last = None
+
+def mouse(event, x, y, flags, param):
+    global last
+    if event == cv2.EVENT_LBUTTONDOWN:
+        last = (x, y)
+    elif event == cv2.EVENT_MOUSEMOVE and last is not None:
+        cv2.line(canvas, last, (x, y), 255, 8)
+        last = (x, y)
+    elif event == cv2.EVENT_LBUTTONUP:
+        last = None
+
+cv2.namedWindow('Draw club skeleton')
+cv2.setMouseCallback('Draw club skeleton', mouse)
+while True:
+    show = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+    cv2.rectangle(show, (64, 64), (BIG - 64, BIG - 64), (0, 0, 255), 1)      # guide box
+    cv2.line(show, (BIG // 2, 0), (BIG // 2, BIG), (0, 0, 120), 1)            # center line
+    cv2.imshow('Draw club skeleton', show)
+    key = cv2.waitKey(10) & 0xFF
+    if key == ord('c'):
+        canvas[:] = 0
+    if key == ord('s'):
+        break
+cv2.destroyAllWindows()
+
+# skeleton as a set of points, same 64 x 64 as the symbols
+skel = np.argwhere(cv2.resize(canvas, (SIZE, SIZE), interpolation=cv2.INTER_AREA) > 60)
+# --- END DRAWING PART ---
+
+def rotated(pts, deg):
+    # rotate the points about the middle (rotation matrix from geometric transforms notes), as a 64 x 64 mask
+    a = np.deg2rad(deg)
+    R = np.array([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]])
+    r, c = np.round((pts - 32) @ R.T + 32).astype(int).T
+    m = np.zeros((SIZE, SIZE), np.uint8)
+    m[r.clip(0, SIZE - 1), c.clip(0, SIZE - 1)] = 1
+    return m
+
+# erosion notes: A erode B is every place B fits entirely inside A, so any left over = the skeleton fits
+# the card can be tilted or upside down, so rotate the skeleton and try every angle
+clubs = []
+for k, sym in enumerate(symbols, 1):
+    A = (sym > 127).astype(np.uint8)
+    for deg in range(0, 360, 5):
+        if cv2.erode(A, rotated(skel, deg), borderValue=0).any():      # outside the picture counts as background
+            clubs.append(k)
+            break
+print('clubs: objects', clubs)
+
+# ---------------
+# %% Club fit output (comment this whole block out for the final project)
+# show the objects that were identified as clubs
+plt.figure(figsize=(3 * max(len(clubs), 1), 3))
+for i, k in enumerate(clubs):
+    plt.subplot(1, len(clubs), i + 1); plt.imshow(symbols[k - 1], cmap='gray'); plt.title('Club: object %d' % k); plt.axis('off')
 plt.show()
 
 # ---------------
