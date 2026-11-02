@@ -29,10 +29,10 @@ def zoom(img):
 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 if not cap.isOpened():
     raise SystemExit('Could not open camera')
-cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)      # fixed focus
-focusOk = cap.set(cv2.CAP_PROP_FOCUS, focus)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_W)    # more pixels on the card
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_H)
+cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)      # fixed focus, set after the resolution since changing it can reset the focus
+focusOk = cap.set(cv2.CAP_PROP_FOCUS, focus)
 msg = ''
 while True:
     ok, f = cap.read()
@@ -45,14 +45,16 @@ while True:
     cv2.imshow('Preview', f)
     key = cv2.waitKey(1) & 0xFF
     if key == ord(' '):
-        for _ in range(60):                     # let auto exposure settle
+        for _ in range(15):                     # let auto exposure settle
             ok, f = cap.read()
+            cv2.waitKey(1)                      # keeps the window from saying "not responding"
 
         # Frame averaging (restoration notes): g_bar = (1/M) * sum of g_i
         # the card and camera stay still so only the noise changes and it cancels out
         total = np.zeros(f.shape)
         for _ in range(AVG_FRAMES):
             ok, f = cap.read()
+            cv2.waitKey(1)
             total += f
         f = zoom(np.round(total / AVG_FRAMES).astype(np.uint8))
 
