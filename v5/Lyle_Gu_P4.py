@@ -36,9 +36,9 @@ INDEX_PAD = 3                    # pixels around the index objects when they are
 FRAME_K = int(round(FRAME_DISK * CORNER_W * CARD_W)) | 1
 FRAME_L = int(round(FRAME_LINE * CORNER_H * CARD_H))
 
-# Failed experiment 1 (commented out): face card = one big object
+# Failed experiment 1 : face card = one big object
 # FACE_H, FACE_W = 0.60, 0.50
-# Failed experiment 2 (commented out): face card = busy middle of the card
+# Failed experiment 2 : face card = busy middle of the card
 # BUSY_X, BUSY_Y = (0.40, 0.60), (0.10, 0.90)
 # BUSY_MAX = 9.5
 
@@ -275,7 +275,7 @@ def card_symbols(card, boxes):
     return objs, b
 
 
-# Failed experiment 1 (commented out): face card = one big object
+# Failed experiment 1 : face card = one big object
 # def is_face(objs):
 #     if not objs:
 #         return False, 0.0, 0.0
@@ -285,7 +285,7 @@ def card_symbols(card, boxes):
 #     return (h > FACE_H and w > FACE_W), h, w
 
 
-# Failed experiment 2 (commented out): face card = busy middle of the card (fails on a busy ace)
+# Failed experiment 2 : face card = busy middle of the card (fails on a busy ace)
 # def busy_middle(card):
 #     # a number card has only a few pips down its middle, a face picture goes black / white many times
 #     m = cv2.medianBlur(card, 3)
@@ -584,7 +584,7 @@ def recognize(img):
     res['card'], res['box'] = card, box
     symbols, res['index_binary'], res['corner'], boxes = read_index(card, big)
     objs, res['symbols_binary'] = card_symbols(card, boxes)
-    # failed experiments (commented out):
+    # failed experiments :
     # res['face'], res['face_h'], res['face_w'] = is_face(objs)
     # res['face'], res['busy_n'] = busy_middle(card)
     res['face'], res['frame'] = picture_frame(card)        # face card = picture frame
