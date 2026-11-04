@@ -1,109 +1,6 @@
-"""
-ECE 4367 / 5367  Image Processing  -  Project 4   (version 5: no templates)
-Lyle & Gu:  determine the rank and suit of a playing card
-
-Usage
-    python Lyle_Gu_P4.py
-    1 = Acquire from Webcam
-          live preview;  SPACE = take a picture and recognize it,  q = quit.
-          Close the result window to go back to the preview for the next card.
-          Every picture is also saved in ./captures.
-    2 = Read from File
-          type the full path of an image including the file name, e.g. C:\\Billy\\card.jpg
-          (or press Enter to choose from the card_* images in this folder and in ./captures);
-          q = quit.  Close the result window to read the next image.
-    For every card a window opens with the input picture, the straightened and cropped card
-    (counted pips in green boxes) and the corner index, and the result is printed in the
-    console, e.g.  "Result: Queen of Spades"  plus what it was based on.
-
-Files (all in this folder)
-    Lyle_Gu_P4.py      the program; it needs nothing else (no templates, no training data)
-    capture_cards.py   side tool: take labeled test pictures with the same camera settings
-    evaluate.py        side tool: run the program on a folder of labeled pictures, print accuracy
-    Needs Python with numpy, opencv-python, matplotlib.
-
-Pipeline (the card is treated as grayscale, no colour is used)
-    1. Gray, 3 x 3 median filter, uneven lighting removed: the background is estimated by a
-       gray-level opening with a square bigger than the card (the card and its symbols do not
-       fit, so only the slowly changing background is left) and subtracted (top-hat).
-    2. Tilt angle: smoothed image -> Sobel gx, gy -> gradient direction folded into [0, 90) deg
-       -> histogram weighted by gradient magnitude (0.5 deg bins) -> peak, refined by the
-       weighted mean of the neighbouring bins.  The four card edges are the longest straight
-       edges, so they make the peak.
-    3. Card: rotate by the angle (new area filled with black), threshold halfway between the
-       darkest and the brightest pixel, count the white pixels in every column and row; the
-       card is where the count is above half of the maximum.
-       Crop, turn to portrait, resize to 250 x 350 (and a 4 x bigger copy for the corner index, CHANGED v5).
-    4. Symbols on the card: threshold halfway between darkest and brightest, connected component
-       analysis (dilate-intersect-XOR from the notes); the thin frame lines of the face pictures
-       are removed first (CHANGED by Lyle); drop objects touching the card border
-       and the two corner indexes (found in step 6).
-    5. Face card or number card  (CHANGED in version 5, see "CHANGED (v5)" in the code)
-       the picture of a J, Q, K is drawn inside a rectangular frame.  Threshold the card a little
-       lighter than halfway (60 % of the way from darkest to brightest: a thin line is blurred to
-       gray), widen the dark pixels sideways by LINE_TOL px (a slightly slanted line stays one run)
-       and find the longest dark run down any column (the outer 6 % of the card is not searched).
-       Longer than half of the card height -> face card.  On our photos the frame is at least 0.83
-       of the height (0.62 on a deck with small pictures); on number cards and aces the longest run
-       is one pip or the big ace pip (at most 0.41).
-       Some decks print a box around the pips of the number cards, which is also a long line.  So if
-       the objects inside (step 4) are 2 or more pips that all have the shape of the index suit symbol
-       (filled, scaled into the same square, overlap IoU >= 0.70, either way up), it is a number card
-       with a box.  A face picture never breaks into such pieces (on our cards at most 0.26).
-       It does not need the picture to be one object (Gu's first rule, which
-       failed when the picture broke into pieces), and it does not depend on how busy the middle
-       of the card is (Lyle's rule: black / white switches down the middle fifth of the columns,
-       more than 9.5 = face; the Bicycle ace of spades has 18 and was read as a Queen).
-       Both earlier rules are kept as comments.
-    6. Corner index  (CHANGED by Lyle, see "CHANGED" in the code)
-       threshold the whole card, remove the long thin frame lines of the face pictures (white
-       top-hat + opening with long line structuring elements), connected components, drop objects
-       touching the card border or tiny.  The index is the leftmost object plus the objects
-       stacked with it (rank above suit, "10" = two objects side by side); no fixed box, so a
-       bigger or smaller index works.  Cut it out, enlarge 4 x, keep only those objects; top
-       object = rank symbol, next = suit symbol.  If this fails the card is turned 180 deg and
-       the bottom-right index is used.  The index (and its mirror in the other corner) is also
-       left out of the pip count.
-       Gu's original (a fixed top-left box of 21 % x 29 %) is only the last resort if the
-       leftmost objects can not be split into a rank and a suit in either corner.
-       CHANGED (v5): the index is cut from the 4 x copy of the card instead of enlarging the
-       250 x 350 card, so the detail of the photo is kept (a card is about 580 px tall on our
-       webcam pictures and 900 - 1000 px on the phone photos).
-    7. Suit from the row-width profile of a suit symbol, in this order  (order CHANGED in v5):
-         top/bottom mirror symmetric                 -> diamond (the only suit that looks the same
-                                                        upside down; checked first because it is the
-                                                        clearest feature and blur does not change it)
-         top 15 % of the rows wide (two lobes)      -> heart
-         top 15 % medium (one round lobe)            -> club,  otherwise (pointed top) spade
-       CHANGED (v5): on a number card (2 - 10) the symbols are the pips, 2 - 3 x bigger than the
-       index symbol, so their shape survives blur better: pips in the lower half are printed upside
-       down and are turned back, the median of the features of all pips is used.  Face cards and
-       aces use the index (the ace's single middle pip can be either way up).
-    8. Rank
-         number card: count the pips (objects at least 40 % of the biggest one and not a line, i.e. at
-                      most 3 x longer than wide): 1 = A, 2 - 10
-         face card:   look at the index letter:  a closed hole -> Q;
-                      otherwise the fullest column (the long vertical stroke) on the left -> K,
-                      on the right -> J
-
-Assumptions (limits of the method)
-    - One card per picture, face up, fully inside the picture; no joker.
-    - Standard design deck: the rank and suit are printed clearly in the top-left and bottom-right
-      corners and are separate from the picture and the pips (not touching them); indices are
-      A, 2-10, J, Q, K; pips do not touch each other; face cards have a large picture.
-    - Plain background darker than the card; its brightness may change slowly, but no other
-      bright objects or patterns.
-    - The card's short side is less than half of the picture's short side, and the index is big
-      enough to read (the smallest card we tested was about 230 px tall).
-    - Card flat and the camera roughly facing it (only slight perspective); any in-plane rotation.
-    - No strong glare or hard shadow on the index or the pips; nothing covering the card
-      (if one index is covered, the other one is used).
-    - Face cards have their picture inside a frame (a straight line longer than half of the card).
-      Number cards and aces have no long straight line, or only a box with nothing but pips inside.
-    - The thresholds (frame length, J/K stroke position, suit rules) were set on our photos: the
-      QB/T 2228 deck (52), a Bicycle standard deck (52) and Lyle's webcam pictures (15).
-    Colour is not used, so grayscale pictures work too.
-"""
+# ECE 4367 / 5367  Image Processing
+# Project 4: playing card rank and suit identification
+# Sean Lyle and Yi Gu
 import os
 import glob
 import time
@@ -115,61 +12,62 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------
 # %% Settings
-ZOOM_PCT = 70                    # webcam: 1.7 x digital zoom (crop to the center)
-CAM_W, CAM_H = 1280, 720         # webcam resolution, default is 640 x 480
-AVG_FRAMES = 10                  # frames averaged for one picture
+ZOOM_PCT = 70                    # 1.7 zoom 
+CAM_W, CAM_H = 1280, 720         # default 640 x 480
+AVG_FRAMES = 10                  
+FOCUS = 70                       
 SAVE_DIR = os.path.join(HERE, 'captures')
 
-CARD_W, CARD_H = 250, 350        # normalized card size
+CARD_W, CARD_H = 250, 350        #card size
 ANGLE_SIZE = 1000                # longest side of the picture used to find the angle
-ANGLE_SIGMA = 3                  # gaussian smoothing before Sobel
-BG_SE = 0.5                      # background opening: square side, fraction of the picture's short side
-BG_SCALE = 8                     # the background is estimated on a 1/8 size copy (it changes slowly)
-CORNER_W, CORNER_H = 0.21, 0.29  # typical corner index size, fraction of the card (sizes the filters and the noise limit)
+ANGLE_SIGMA = 3                  
+BG_SE = 0.5                      # background opening
+BG_SCALE = 8                     # estimate background on a 1/8 size copy 
+CORNER_W, CORNER_H = 0.21, 0.29  # typical corner index size
 UP = 4                           # index enlargement
 MIN_AREA = 0.003                 # objects smaller than this fraction of a typical corner are noise
 FRAME_DISK = 0.10                # top-hat disk, fraction of the corner width
 FRAME_LINE = 0.40                # line length, fraction of the corner height
-# CHANGED (Lyle): the index is found as the leftmost objects instead of a fixed corner box
+# the index is found as the leftmost objects instead of a fixed corner box
 INDEX_ROWS, INDEX_COLS = 0.50, 0.40   # the index is searched for in the top-left part of the card
-INDEX_GAP = 0.012                # gap (fraction of the card width) allowed between the digits of a "10"
+INDEX_GAP = 0.012                # gap  allowed between the digits of a "10"
 INDEX_PAD = 3                    # pixels around the index objects when they are cut out
-# CHANGED (Lyle): thin frame lines (a box around the pips, the frame of the face pictures) are removed before the pips are counted
+# thin frame lines removed before the pips are counted
 FRAME_K = int(round(FRAME_DISK * CORNER_W * CARD_W)) | 1
 FRAME_L = int(round(FRAME_LINE * CORNER_H * CARD_H))
 
-# Gu's original face rule (commented out, replaced by the BUSY_* rule below):
-# FACE_H, FACE_W = 0.60, 0.50      # face picture: one object taller / wider than this part of the card
-# CHANGED (Lyle): face card found from the middle of the card (commented out in v5, replaced by the FRAME_* rule below)
-# BUSY_X, BUSY_Y = (0.40, 0.60), (0.10, 0.90)   # middle of the card: the columns and rows that are checked
-# BUSY_MAX = 9.5                   # (was 11, CHANGED (Lyle): the unique Q of diamonds has 11) a number card switches black / white at most this often down its middle
-# CHANGED (v5): face card found from the frame around the picture
-FRAME_FACE = 0.50                # face card: a vertical line longer than half of the card height
-FRAME_LEVEL = 0.60               # line threshold: 60 % of the way from the darkest to the brightest pixel
-LINE_TOL = 15                    # px the line may wander sideways (left-over tilt, slight perspective)
-EDGE = 0.06                      # the outer 6 % of the card is not searched (card edge, background left by the crop)
-SHAPE_N = 32                     # shapes are compared at 32 x 32
-PIP_SHAPE = 0.70                 # a pip overlaps the index suit symbol by at least 70 % (IoU)
-PIP_LONG = 3                     # a pip is at most 3 x longer than wide (a line is not a pip)
-PIP_UPRIGHT = 0.52               # pips with their middle above 52 % of the card height are upright, below upside down
-PIP_REL = 0.40                   # pip: at least 40 % of the biggest object on the card ...
-PIP_MIN = 0.003                  # ... and at least 0.3 % of the card
-HOLE_MIN = 0.02                  # a hole in a letter is at least 2 % of the letter's box
-STEM_K = 0.40                    # fullest column left of 40 % of the letter width -> K, else J
+# Failed experiment 1 (commented out): face card = one big object
+# FACE_H, FACE_W = 0.60, 0.50
+# Failed experiment 2 (commented out): face card = busy middle of the card
+# BUSY_X, BUSY_Y = (0.40, 0.60), (0.10, 0.90)
+# BUSY_MAX = 9.5
 
-ASYM_DIAMOND = 0.115             # suit rules, checked in this order (CHANGED v5): diamonds <= 0.05, others >= 0.18
-TOP_HEART = 0.47                 # hearts >= 0.59, clubs 0.29 - 0.36
-TOP_CLUB = 0.26                  # CHANGED (v5, was 0.235): spades <= 0.20 on sharp photos, but blur
-                                 # widens the pointed top, so the limit sits a little above the middle
+# Face card found from the frame around the picture
+FRAME_FACE = 0.50                # face card: vertical line longer than this fraction of the card height
+FRAME_LEVEL = 0.60               # line threshold, fraction of the way from darkest to brightest
+LINE_TOL = 15                    # px the line may wander sideways
+EDGE = 0.06                      # outer part of the card that is not searched
+SHAPE_N = 32                     # shapes are compared at this size
+PIP_SHAPE = 0.70                 # minimum overlap of a pip with the index suit symbol
+PIP_LONG = 3                     # a pip is not longer than this times its width
+PIP_UPRIGHT = 0.52               # pips above this fraction of the card height are upright
+PIP_REL = 0.40                   # pip: at least this fraction of the biggest object ...
+PIP_MIN = 0.003                  # ... and of the card
+HOLE_MIN = 0.02                  # smallest hole in a letter, fraction of its box
+STEM_K = 0.40                    # long stroke left of this fraction of the letter width = K, else J
+
+ASYM_DIAMOND = 0.115             # suit rules, checked in this order
+TOP_HEART = 0.47
+TOP_CLUB = 0.26
 
 RANK_NAMES = {'A': 'Ace', 'J': 'Jack', 'Q': 'Queen', 'K': 'King'}
 SUIT_NAMES = {'c': 'Clubs', 'd': 'Diamonds', 'h': 'Hearts', 's': 'Spades'}
 
 
 # ---------------
-# %% Acquisition (webcam part from Lyle's version)
+# %% Step 1: using webcam
 def zoom(img):
-    # digital zoom: crop the center and resize back
+    # digital zoom to crop the center and resize back
     h, w = img.shape[:2]
     s = 1 + ZOOM_PCT / 100
     ch, cw = round(h / s), round(w / s)
@@ -181,14 +79,14 @@ def open_camera():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if os.name == 'nt' else cv2.VideoCapture(0)
     if not cap.isOpened():
         raise SystemExit('Could not open camera')
-    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)          # fixed focus
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_W)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_H)
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)          # fixed focus (set after the resolution)
+    cap.set(cv2.CAP_PROP_FOCUS, FOCUS)
     return cap
 
 
 def capture(cap):
-    # preview until SPACE (picture) or q (None)
     while True:
         ok, f = cap.read()
         f = zoom(f)
@@ -200,12 +98,14 @@ def capture(cap):
             break
         if key == ord('q'):
             return None
-    for _ in range(60):                          # let auto exposure settle
+    for _ in range(15):                          # let focus settle
         cap.read()
-    # frame averaging (restoration notes): g_bar = (1/M) * sum of g_i, only the noise changes
+        cv2.waitKey(1)                           # keeps the window from saying "not responding"
+    # frame averaging equation when only noise changes: g_bar = (1/M) * sum of g_i
     total = None
     for _ in range(AVG_FRAMES):
         ok, f = cap.read()
+        cv2.waitKey(1)
         total = f.astype(np.float64) if total is None else total + f
     f = zoom(np.round(total / AVG_FRAMES).astype(np.uint8))
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -251,16 +151,15 @@ def read_file():
 
 
 # ---------------
-# %% Step 1-3: find the card, straighten and crop it
+# %% Steps 2-5: find the card, straighten and crop it
 def to_gray(img):
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-    return cv2.medianBlur(g, 3)                   # removes speckle without blurring edges
+    return cv2.medianBlur(g, 3)                   # removes SP without blurring edges
 
 
 def remove_background(g):
-    # uneven lighting (morphology notes): an opening removes bright objects the structuring
-    # element does not fit in; with a square bigger than the card only the background is left.
-    # image - opening = top-hat, the background becomes ~0 and the card stands out evenly
+    # an opening with a square bigger than the card leaves only the background
+    # image - opening = top-hat, so the card stands out evenly
     small = cv2.resize(g, (g.shape[1] // BG_SCALE, g.shape[0] // BG_SCALE), interpolation=cv2.INTER_AREA)
     d = int(BG_SE * min(small.shape)) | 1
     bg = cv2.morphologyEx(small, cv2.MORPH_OPEN, np.ones((d, d), np.uint8))
@@ -271,12 +170,11 @@ def remove_background(g):
 
 def midrange(img):
     # halfway between the darkest and the brightest pixel
-    # (same as Lyle's linear stretch to 0 - 255 followed by T = 128)
     return float(img.min()) + (float(img.max()) - float(img.min())) / 2
 
 
 def estimate_angle(g):
-    # gradient direction histogram, weighted by magnitude; the card edges give the peak
+    # gradient direction histogram, weighted by magnitude, the card edges give the peak
     s = min(1.0, ANGLE_SIZE / max(g.shape))
     small = cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else g
     sm = cv2.GaussianBlur(small.astype(np.float32), (0, 0), ANGLE_SIGMA)
@@ -294,8 +192,7 @@ def estimate_angle(g):
 
 
 def rotate(img, angle, interp=cv2.INTER_LINEAR):
-    # rotate about the center (geometric transforms notes), canvas grown so nothing is cut,
-    # new area filled with black so it counts as background
+    # rotate about the center (geometric transforms notes), canvas grown so nothing is cut
     h, w = img.shape[:2]
     M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
     c, s = abs(M[0, 0]), abs(M[0, 1])
@@ -316,26 +213,26 @@ def find_card(g):
     if len(x) < 10 or len(y) < 10:
         return None, angle, None, None
     box = (y[0], y[-1] + 1, x[0], x[-1] + 1)
-    # CHANGED (v5): also a 4 x bigger copy, the corner index is cut from it (keeps the detail of the photo)
+    # also a 4 x bigger copy, the corner index is cut from it
     return cut_card(r, box), angle, box, cut_card(r, box, UP)
 
 
 def cut_card(r, box, scale=1):
-    # crop the box from a rotated picture, portrait, normalized size (also used for the colour view)
+    # crop the box from the rotated picture, portrait, normalized size
     y0, y1, x0, x1 = box
     card = np.ascontiguousarray(r[y0:y1, x0:x1])
     if card.shape[1] > card.shape[0]:             # landscape -> portrait
         card = np.ascontiguousarray(np.rot90(card))
     size = (CARD_W * scale, CARD_H * scale)
-    enlarge = scale > 1 and size[1] > card.shape[0]          # the big copy of a small card: smooth enlargement
+    enlarge = scale > 1 and size[1] > card.shape[0]          # enlarging the big copy
     return cv2.resize(card, size, interpolation=cv2.INTER_CUBIC if enlarge else cv2.INTER_AREA)
 
 
 # ---------------
-# %% Connected components (CCA notes, Lyle's version)
+# %% Step 6: Connected components (CCA notes)
 def connected_components(A, B=np.ones((3, 3), np.uint8)):
     # X_k = (X_k-1 dilated by B) intersect A until X_k = X_k-1, then XOR it out of A
-    # B = 3 x 3 square -> 8-connected, cross -> 4-connected
+    # B = 3 x 3 square -> 8-connected, cross -> 4-connected better for low resulotion it seems like
     A = A.copy()
     objects = []
     while A.any():
@@ -357,7 +254,7 @@ def bbox(X):
 
 
 # ---------------
-# %% Step 4-5: symbols on the card, face card or not, pip count
+# %% Steps 6, 7, 10: symbols on the card, face card or not, pip count
 def card_symbols(card, boxes):
     # boxes = [(y0, y1, x0, x1), ...] of the two indexes (top-left and bottom-right), they are not pips
     m = cv2.medianBlur(card, 3)
@@ -368,17 +265,17 @@ def card_symbols(card, boxes):
         area = int(X.sum())
         if y0 == 0 or x0 == 0 or y1 == CARD_H - 1 or x1 == CARD_W - 1:
             continue                              # card edge / background
-        # CHANGED (Lyle): the old fixed corner boxes are replaced by where the index was found
+        # fixed corner boxes (replaced by where the index was found)
         # in_tl = x1 < CORNER_W * CARD_W and y1 < CORNER_H * CARD_H
         # in_br = x0 > (1 - CORNER_W) * CARD_W and y0 > (1 - CORNER_H) * CARD_H
-        # CHANGED (Lyle): the middle of the object has to be inside the box (the bottom-right index is not always an exact mirror)
+        # the middle of the object is inside an index box
         if any(by0 <= (y0 + y1) / 2 <= by1 and bx0 <= (x0 + x1) / 2 <= bx1 for by0, by1, bx0, bx1 in boxes):
             continue                              # corner index (read separately)
         objs.append(dict(area=area, box=(y0, y1, x0, x1), mask=X[y0:y1 + 1, x0:x1 + 1]))
     return objs, b
 
 
-# Gu's original face rule (commented out, replaced by busy_middle below)
+# Failed experiment 1 (commented out): face card = one big object
 # def is_face(objs):
 #     if not objs:
 #         return False, 0.0, 0.0
@@ -388,8 +285,7 @@ def card_symbols(card, boxes):
 #     return (h > FACE_H and w > FACE_W), h, w
 
 
-# CHANGED (Lyle): new face rule (commented out in v5, replaced by picture_frame below: it measures how busy
-# the middle is, not whether there is a picture; the Bicycle ace of spades has 18 switches)
+# Failed experiment 2 (commented out): face card = busy middle of the card (fails on a busy ace)
 # def busy_middle(card):
 #     # a number card has only a few pips down its middle, a face picture goes black / white many times
 #     m = cv2.medianBlur(card, 3)
@@ -400,28 +296,27 @@ def card_symbols(card, boxes):
 #     return n > BUSY_MAX, n
 
 
-# CHANGED (v5): face card = the picture is inside a frame
+# face card = the picture is inside a frame
 def picture_frame(card):
-    # the picture of a J, Q, K is drawn inside a rectangular frame: a straight vertical line about 80 % of the
-    # card height. On a number card or an ace nothing dark runs that far (the longest is the big ace pip, < 45 %).
+    # the picture of a J, Q, K is inside a frame: a long straight vertical line
+    # a number card or an ace has no dark line that long
     m = cv2.medianBlur(card, 3)
     lo, hi = float(m.min()), float(m.max())
-    b = (m < lo + FRAME_LEVEL * (hi - lo)).astype(np.uint8)   # a thin line is blurred to gray -> threshold a bit lighter
-    b = cv2.dilate(b, np.ones((1, LINE_TOL), np.uint8))      # sideways only: a slightly slanted line stays one run
+    b = (m < lo + FRAME_LEVEL * (hi - lo)).astype(np.uint8)   # thin lines are gray, so threshold a bit lighter
+    b = cv2.dilate(b, np.ones((1, LINE_TOL), np.uint8))      # sideways only, so a slanted line stays one run
     H, W = b.shape
     b = b[int(EDGE * H):H - int(EDGE * H), int(EDGE * W):W - int(EDGE * W)]   # not the card edge
     run = best = np.zeros(b.shape[1], int)
     for row in b:                                      # length of the dark run down every column
         run = (run + 1) * row
         best = np.maximum(best, run)
-    n = best.max() / H                                 # longest vertical line, fraction of the card height
+    n = best.max() / H                                 # longest vertical line, fraction of card height
     return n > FRAME_FACE, n
 
 
-# CHANGED (v5): a long line can also be a box around the pips of a number card. Then everything inside are pips:
-# two or more objects with the shape of the index suit symbol. A face picture never breaks into such pieces.
+# a long line can also be a box around the pips: then everything inside has the shape of the index suit symbol
 def filled(m):
-    # the object with its holes filled (flood fill the background from outside)
+    # the object with its holes filled
     p = np.pad(m.astype(np.uint8), 1)
     outside = p.copy()
     cv2.floodFill(outside, None, (0, 0), 1)
@@ -429,7 +324,7 @@ def filled(m):
 
 
 def square(m):
-    # the filled shape in the middle of a square (keeps its height / width), scaled to SHAPE_N x SHAPE_N
+    # the filled shape centered in a square, scaled to SHAPE_N x SHAPE_N
     m = filled(m)
     h, w = m.shape
     n = max(h, w)
@@ -439,7 +334,7 @@ def square(m):
 
 
 def same_shape(a, b):
-    # overlap (IoU) of two shapes scaled to the same size, the better of the two ways up
+    # overlap (IoU) of two shapes, the better of the two ways up
     a, b = square(a), square(b)
     iou = lambda u, v: (u & v).sum() / max(1, (u | v).sum())
     return max(iou(a, b), iou(a[::-1, ::-1], b))
@@ -459,16 +354,15 @@ def pips(objs):
         y0, y1, x0, x1 = o['box']
         h, w = y1 - y0 + 1, x1 - x0 + 1
         if o['area'] >= max(PIP_REL * biggest, PIP_MIN * CARD_W * CARD_H) and max(h, w) <= PIP_LONG * min(h, w):
-            found.append(o)                       # CHANGED (v5): a pip is not a line (leftover of a frame or box)
+            found.append(o)                       # a pip is not a line (leftover of a frame or box)
     return found
 
 
 # ---------------
-# %% Step 6: corner index -> rank symbol and suit symbol
+# %% Step 8: corner index -> rank symbol and suit symbol
 def remove_frame_lines(b, k, L):
-    # the thin straight frame of the face pictures can touch the index symbols;
-    # top-hat (A minus its opening) keeps only thin parts, opening with a long line keeps only
-    # the long straight ones -> remove those
+    # the frame of the face pictures can touch the index symbols
+    # top-hat keeps the thin parts, opening with a long line keeps the long straight ones, remove those
     disk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     thin = b & (1 - cv2.morphologyEx(b, cv2.MORPH_OPEN, disk))
     lines = (cv2.morphologyEx(thin, cv2.MORPH_OPEN, np.ones((L, 1), np.uint8)) |
@@ -476,23 +370,20 @@ def remove_frame_lines(b, k, L):
     return b & (1 - cv2.dilate(lines, np.ones((3, 3), np.uint8)))
 
 
-# Gu's original: split_corner cut a fixed box (top-left 21 % x 29 %) and took the first two objects in it.
-# CHANGED (Lyle): find_index + split_index below find the index as the leftmost objects on the card,
-# so an index bigger or smaller than the old box still works.
+# The index is found as the leftmost objects on the card; split_corner (fixed box) is the last resort.
 def find_index(card):
-    # the index = the leftmost object (rank or suit) plus the objects stacked with it (rank above suit,
-    # "10" = two objects next to each other); the frame lines of the face pictures are removed first
+    # the index = the leftmost object plus the objects stacked next to it (rank above suit, "10" = two objects)
     m = cv2.medianBlur(card, 3)
     b = remove_frame_lines((m < midrange(m)).astype(np.uint8), FRAME_K, FRAME_L)
     h, w = int(INDEX_ROWS * CARD_H), int(INDEX_COLS * CARD_W)
-    b = b[:h, :w]                                                # only the top-left part is searched (faster)
+    b = b[:h, :w]                                                # only the top-left part is searched
     small = MIN_AREA * CORNER_W * CORNER_H * CARD_W * CARD_H
     objs = []
-    cross = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))   # 4-connected: a frame line touching a symbol only diagonally stays separate
+    cross = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))   # 4-connected
     for X in connected_components(b, cross):
         y0, y1, x0, x1 = bbox(X)
         if X.sum() < small or y0 == 0 or x0 == 0 or y1 == h - 1 or x1 == w - 1:
-            continue                                             # noise, card edge, big things cut by the part
+            continue                                             # noise, card edge
         objs.append([y0, y1, x0, x1, X])
     if not objs:
         return None
@@ -522,8 +413,7 @@ def find_index(card):
 
 
 def split_corner(card):
-    # Gu's original, now only the last resort when the leftmost objects can not be split into rank and suit:
-    # fixed box (top-left 21 % x 29 %, enlarged 4 x), frame lines removed, first two objects from the top
+    # fixed corner box, last resort if the leftmost objects can not be split into rank and suit
     roi = card[:int(CORNER_H * CARD_H), :int(CORNER_W * CARD_W)]
     roi = cv2.resize(roi, (roi.shape[1] * UP, roi.shape[0] * UP), interpolation=cv2.INTER_CUBIC)
     m = cv2.medianBlur(roi, 3)
@@ -553,13 +443,13 @@ def split_corner(card):
 
 
 def index_box(mask):
-    # box around the index objects (with the margin), (y0, y1, x0, x1)
+    # box around the index objects, (y0, y1, x0, x1)
     y0, y1, x0, x1 = bbox(mask)
     return y0 - INDEX_PAD, y1 + INDEX_PAD, x0 - INDEX_PAD, x1 + INDEX_PAD
 
 
 def mirror_box(box):
-    # the same box seen from the opposite corner (card turned 180 deg)
+    # the same box from the opposite corner
     y0, y1, x0, x1 = box
     return CARD_H - 1 - y1, CARD_H - 1 - y0, CARD_W - 1 - x1, CARD_W - 1 - x0
 
@@ -571,10 +461,10 @@ def split_index(card, mask, big=None):
     size = ((x1 - x0) * UP, (y1 - y0) * UP)
     if big is None:
         roi = cv2.resize(card[y0:y1, x0:x1], size, interpolation=cv2.INTER_CUBIC)
-    else:                                                        # CHANGED (v5): cut from the 4 x copy (more detail)
+    else:                                                        # cut from the 4 x copy (more detail)
         roi = big[y0 * UP:y1 * UP, x0 * UP:x1 * UP]
     keep = cv2.dilate(cv2.resize(mask[y0:y1, x0:x1], size, interpolation=cv2.INTER_NEAREST),
-                      np.ones((UP + 1, UP + 1), np.uint8))       # only the index objects, nothing touching them
+                      np.ones((UP + 1, UP + 1), np.uint8))       # only the index objects
     m = cv2.medianBlur(roi, 3)
     b = (m < midrange(m)).astype(np.uint8) & keep                # symbols = 1
     small = MIN_AREA * CORNER_W * CORNER_H * CARD_W * CARD_H * UP * UP
@@ -600,7 +490,7 @@ def split_index(card, mask, big=None):
 
 
 # ---------------
-# %% Step 7: suit from the row-width profile
+# %% Step 9: suit from the row-width profile
 def suit_features(m):
     w = np.convolve(m.sum(1).astype(float), np.ones(5) / 5, 'same')     # width of every row
     top = w[:max(1, round(0.15 * len(w)))].mean() / w.max()             # how wide the top is
@@ -622,9 +512,9 @@ def classify_suit(m):
     return suit_rule(*suit_features(m))
 
 
-# CHANGED (v5): on a number card the suit is read from the pips, they are 2 - 3 x bigger than the index symbol
+# on a number card the suit is read from the pips (bigger than the index symbol)
 def pip_suit(found):
-    # pips in the lower half are printed upside down -> turned back; median of the features of all pips
+    # pips in the lower half are upside down, turn them back; median of all pips
     feats = []
     for o in found:
         y0, y1, _, _ = o['box']
@@ -634,7 +524,7 @@ def pip_suit(found):
 
 
 # ---------------
-# %% Step 8: J / Q / K from the structure of the index letter
+# %% Step 10: J / Q / K from the structure of the index letter
 def count_holes(m):
     # holes = background objects that do not reach the border (4-connected background)
     p = np.pad(1 - m, 1, constant_values=1).astype(np.uint8)
@@ -660,16 +550,15 @@ def face_letter(m):
 # %% Whole card
 def read_index(card, big=None):
     # top-left index; if it can not be split, turn the card 180 deg and use the bottom-right one
-    # returns the two symbols, the picture of the index, which corner, and the boxes of both indexes
-    # big = the 4 x copy of the card (CHANGED (v5)), the index is cut from it
+    # big = the 4 x copy of the card
     turn = lambda a: None if a is None else np.ascontiguousarray(np.rot90(a, 2))
     turned = turn(card)
     corners = [('top-left', card, big, find_index(card)), ('bottom-right', turned, turn(big), find_index(turned))]
     boxes = [index_box(mk) if i == 0 else mirror_box(index_box(mk))
              for i, (_, _, _, mk) in enumerate(corners) if mk is not None]
     if not boxes:
-        boxes = [(0, int(CORNER_H * CARD_H), 0, int(CORNER_W * CARD_W))]          # nothing found: the old fixed corners
-    boxes += [mirror_box(b) for b in boxes]                                       # the other corner (the found boxes can be off)
+        boxes = [(0, int(CORNER_H * CARD_H), 0, int(CORNER_W * CARD_W))]          # nothing found: fixed corners
+    boxes += [mirror_box(b) for b in boxes]                                       # the other corner
     first = None
     for name, c, bc, mask in corners:
         if mask is None:
@@ -678,7 +567,7 @@ def read_index(card, big=None):
         if len(symbols) == 2:
             return symbols, b, name, boxes
         first = first or (symbols, b, 'none', boxes)
-    for name, c, _, _ in corners:                                # last resort: Gu's fixed box
+    for name, c, _, _ in corners:                                # last resort: fixed corner box
         symbols, b = split_corner(c)
         if len(symbols) == 2:
             return symbols, b, name + ' (fixed box)', boxes
@@ -695,14 +584,15 @@ def recognize(img):
     res['card'], res['box'] = card, box
     symbols, res['index_binary'], res['corner'], boxes = read_index(card, big)
     objs, res['symbols_binary'] = card_symbols(card, boxes)
-    # Gu's original: res['face'], res['face_h'], res['face_w'] = is_face(objs)
-    # res['face'], res['busy_n'] = busy_middle(card)       # CHANGED (Lyle): face card from the middle of the card
-    res['face'], res['frame'] = picture_frame(card)        # CHANGED (v5): face card = picture frame
+    # failed experiments (commented out):
+    # res['face'], res['face_h'], res['face_w'] = is_face(objs)
+    # res['face'], res['busy_n'] = busy_middle(card)
+    res['face'], res['frame'] = picture_frame(card)        # face card = picture frame
     if len(symbols) == 2:
         res['rank_img'], res['suit_img'] = symbols
         res['suit'], res['top'], res['asym'] = classify_suit(symbols[1])
         res['suit_from'] = 'index'
-        if res['face']:            # CHANGED (v5): a frame with only pips inside = a box around the pips
+        if res['face']:            # a frame with only pips inside = a box around the pips
             boxed, res['pip_shape'] = boxed_pips(pips(objs), symbols[1])
             res['face'] = not boxed
     if res['face']:
@@ -713,7 +603,7 @@ def recognize(img):
         n = len(res['pips'])
         if 1 <= n <= 10:
             res['rank'] = 'A' if n == 1 else str(n)
-        if n >= 2:      # CHANGED (v5): suit from the pips (an ace's single middle pip can be either way up -> index)
+        if n >= 2:      # suit from the pips (an ace's single middle pip can be either way up -> index)
             res['suit'], res['top'], res['asym'] = pip_suit(res['pips'])
             res['suit_from'] = 'pips'
     res['ok'] = 'rank' in res and 'suit' in res
@@ -729,7 +619,7 @@ def describe(res):
 
 
 # ---------------
-# %% Output: window with the straightened card, and the result printed
+# %% Step 11: Output: window with the straightened card, and the result printed
 def show(img, res):
     title = describe(res)
     print('\nResult: %s' % title)
@@ -744,7 +634,7 @@ def show(img, res):
     print('  tilt %.1f deg, %s;  suit from %s (top width %.2f, asymmetry %.2f)'
           % (res['angle'], how, src, res.get('top', -1), res.get('asym', -1)))
 
-    # straightened card in colour (only for showing it), with what was counted
+    # straightened card in color (only for showing it), with what was counted
     view = cut_card(rotate(img, res['angle']), res['box']) if img.ndim == 3 else res['card']
     view = cv2.resize(view, (2 * CARD_W, 2 * CARD_H), interpolation=cv2.INTER_CUBIC)
     plt.figure(figsize=(12, 6.5))
@@ -757,7 +647,7 @@ def show(img, res):
         y0, y1, x0, x1 = [2 * v for v in o['box']]
         ax.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, color='lime', lw=2))
     plt.title('Straightened card (tilt %.1f deg)\n%s' % (res['angle'], 'face card' if res['face']
-              else '%d pips' % len(res.get('pips', [])))); plt.axis('off')
+              else '%d objects' % len(res.get('pips', [])))); plt.axis('off')
     plt.subplot(1, 3, 3)
     plt.imshow(res['index_binary'], cmap='gray')
     plt.title('%s index' % res['corner']); plt.axis('off')
